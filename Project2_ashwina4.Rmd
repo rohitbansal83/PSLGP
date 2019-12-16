@@ -1,0 +1,377 @@
+---
+title: "STAT 542 / CS 598: Group Project: Skin Cancer Diagnostics"
+author: "Fall 2019, by Ashwin Amrutphale (ashwina4), Pratik Patwari (patwari3), Rohit Bansal (rbansal3)"
+date: '12/12/2019'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+
+### Question 1: As a data scientist, you are asked to construct classification models for identifying malignant moles based on the pixels (RGB colors) of these images.
+
+
+
+```{r}
+
+###As a quick example, We will use EBImage to resize the images and turn them into greyscale so that I can load them into R easily. To do so, we will use a function to process the images. Each image will be turned into a vector of length 784, with each element representing the value in a pixel.
+
+library("EBImage")
+library(pbapply)
+extract_feature <- function(dir_path, width, height, is_benign = TRUE, add_label = FALSE) {
+  img_size <- width*height
+  ## List images in path
+  images_names <- list.files(dir_path)
+  if (add_label) {
+    images_names <- images_names[grepl(ifelse(is_benign, "benign", "malignant"), images_names)]
+    label <- ifelse(is_benign, 0, 1)
+  }
+  print(paste("Start processing", length(images_names), "images"))
+  ## This function will resize an image, turn it into greyscale
+  feature_list <- pblapply(images_names, function(imgname) {
+    ## Read image
+    img <- readImage(file.path(dir_path, imgname))
+    ## Resize image
+    img_resized <- resize(img, w = width, h = height)
+    dim(img_resized)
+    img_vector <- imageData(img_resized)
+    return(img_vector)
+  })
+  ## bind the list of vector into matrix
+  feature_matrix <- do.call(rbind, feature_list)
+  feature_matrix <- as.data.frame(feature_matrix)
+  ## Set names
+  names(feature_matrix) <- paste0("pixel", c(1:img_size))
+  if (add_label) {
+    ## Add label
+    feature_matrix <- cbind(label = label, feature_matrix)
+  }
+  return(feature_matrix)
+}
+
+```
+
+
+### Read Images
+
+```{r}
+#This section will read the images from the directory
+image_dir <- './Skin Cancer Data/542/benign'
+image_dir2 <- './Skin Cancer Data/542/malignant'
+
+benign_data <- extract_feature(dir_path = image_dir, width = 100, height = 100)
+malignant_data <- extract_feature(dir_path = image_dir2, width = 100, height = 100, is_benign = FALSE)
+
+```
+
+### Processing 1 sample image to show the conversion
+
+```{r}
+
+
+img <- readImage("ISIC_0000000.jpg")
+display(img, method="browser")
+
+#sample_image <- extract_feature(dir_path = image_dir, width = 100, height = 100)
+img_resized <- resize(img, w = 100, h = 100)
+    dim(img_resized)
+    img_vector <- imageData(img_resized)
+    display(img_vector, method="browser")
+```
+
+### Add Lable
+
+```{r}
+# To add lable 0 amd 1 for Beign and Malignant data respectively
+
+lable <- c(rep(0,150),rep(1,150))
+imageData <- rbind(benign_data,malignant_data)
+
+```
+
+### Model Training
+
+```{r}
+# Data partitions: randomly split 70% of data into training set and the rest 30% will be used as the test set.
+
+library(caret)
+set.seed(1)
+test_index <- createDataPartition(y = lable, times = 1, p=0.3, list = FALSE)
+train_images <- imageData[-test_index,]
+test_images <- imageData[test_index,]
+train_labels <- lable[-test_index]
+test_labels <- lable[test_index]
+
+
+
+```
+
+
+### Plotting Confusion Matrix
+
+```{r}
+
+#Below function will be used to plot confusion matrix
+
+draw_confusion_matrix <- function(cmtrx) {
+    total <- sum(cmtrx$table)
+    res <- as.numeric(cmtrx$table)
+    # Generate color gradients. Palettes come from RColorBrewer.
+    greenPalette <- c("#F7FCF5","#E5F5E0","#C7E9C0","#A1D99B","#74C476","#41AB5D","#238B45","#006D2C","#00441B")
+    redPalette <- c("#FFF5F0","#FEE0D2","#FCBBA1","#FC9272","#FB6A4A","#EF3B2C","#CB181D","#A50F15","#67000D")
+    getColor <- function (greenOrRed = "green", amount = 0) {
+      if (amount == 0)
+      return("#FFFFFF")
+      palette <- greenPalette
+      if (greenOrRed == "red")
+      palette <- redPalette
+      colorRampPalette(palette)(100)[10 + ceiling(90 * amount / total)]
+    }
+    # set the basic layout
+    layout(matrix(c(1,1,2)))
+    par(mar=c(2,2,2,2))
+    plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+    title('Confusion Matrix', cex.main=2)
+    # create the matrix
+    classes = colnames(cmtrx$table)
+    rect(150, 430, 240, 370, col=getColor("green", res[1]))
+    text(195, 435, classes[1], cex=1.2)
+    rect(250, 430, 340, 370, col=getColor("red", res[3]))
+    text(295, 435, classes[2], cex=1.2)
+    text(125, 370, 'Actual', cex=1.3, srt=90, font=2)
+    text(245, 450, 'Predicted', cex=1.3, font=2)
+    rect(150, 305, 240, 365, col=getColor("red", res[2]))
+    rect(250, 305, 340, 365, col=getColor("green", res[4]))
+    text(140, 400, classes[1], cex=1.2, srt=90)
+    text(140, 335, classes[2], cex=1.2, srt=90)
+    # add in the cmtrx results
+    text(195, 400, res[1], cex=1.6, font=2, col='white')
+    text(195, 335, res[2], cex=1.6, font=2, col='white')
+    text(295, 400, res[3], cex=1.6, font=2, col='white')
+    text(295, 335, res[4], cex=1.6, font=2, col='white')
+    # add in the specifics
+    plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+    text(10, 85, names(cmtrx$byClass[1]), cex=1.2, font=2)
+    text(10, 70, round(as.numeric(cmtrx$byClass[1]), 3), cex=1.2)
+    text(30, 85, names(cmtrx$byClass[2]), cex=1.2, font=2)
+    text(30, 70, round(as.numeric(cmtrx$byClass[2]), 3), cex=1.2)
+    text(50, 85, names(cmtrx$byClass[5]), cex=1.2, font=2)
+    text(50, 70, round(as.numeric(cmtrx$byClass[5]), 3), cex=1.2)
+    text(70, 85, names(cmtrx$byClass[6]), cex=1.2, font=2)
+    text(70, 70, round(as.numeric(cmtrx$byClass[6]), 3), cex=1.2)
+    text(90, 85, names(cmtrx$byClass[7]), cex=1.2, font=2)
+    text(90, 70, round(as.numeric(cmtrx$byClass[7]), 3), cex=1.2)
+    # add in the accuracy information
+    text(30, 35, names(cmtrx$overall[1]), cex=1.5, font=2)
+    text(30, 20, round(as.numeric(cmtrx$overall[1]), 3), cex=1.4)
+    text(70, 35, names(cmtrx$overall[2]), cex=1.5, font=2)
+    text(70, 20, round(as.numeric(cmtrx$overall[2]), 3), cex=1.4)
+
+}
+
+
+```
+
+
+### KNN Classifier
+
+
+```{r}
+##KNN Classification model
+
+library(class)
+i=1                          # declaration to initiate for loop
+optm=c(1:20)  
+model = c(1:20)
+# running model from k = 1 to 20
+for (i in 1:20)
+{ 
+  knn.model = knn(train=train_images, test=test_images, cl=as.factor(train_labels), k=i)
+  optm[i] = (100 * sum(as.factor(test_labels) == knn.model)/NROW(test_labels))
+  cat(i,'=',optm[i],'\n')       # to print % accuracy 
+  if (i == 1)
+  {
+    optm_max = optm[i] # find the max accuracy out of 20
+  }  
+  if(optm[i] > optm_max && i>1)
+  {  
+     model_max = knn.model # find the max accuracy out of 20
+     optm_max = optm[i]
+  }
+}
+
+# Plots
+plot(optm, type="b", xlab="K- Value",ylab="Accuracy level")  # to plot % accuracy wrt to k-value
+t = confusionMatrix(model_max, as.factor(test_labels))
+draw_confusion_matrix(t)
+
+```
+
+
+### Random Forest Classifier
+
+
+```{r}
+# Random Forest Classifier 
+# Tuning parameter : ntree = 500, random_state = 0
+library(randomForest)
+library(ggplot2)
+rf <- randomForest(x = train_images, y = as.factor(train_labels)
+                   , xtest=test_images, ytest=as.factor(test_labels),keep.forest=TRUE,ntree = 500, random_state = 0)
+print(paste("Random Forest Accuracy:", (sum(ifelse(rf$test$predicted == as.factor(test_labels),1,0)) / length(rf$test$predicted)) * 100))
+
+# Plots
+
+t = confusionMatrix(rf$test$predicted, as.factor(test_labels))
+draw_confusion_matrix(t)
+```
+
+
+### SVM Classifier
+
+```{r}
+
+# SVM Classification 
+# Tuning parameter: cost=10, scale=FALSE
+
+library(e1071)
+svm.model <- svm(x=train_images,y=as.factor(train_labels),kernel = 'radial', type = 'C-classification', cost=10, scale=FALSE)
+y_pred = predict(svm.model, newdata = test_images) 
+
+# Plots
+t = confusionMatrix(y_pred, as.factor(test_labels))
+draw_confusion_matrix(t)
+
+```
+
+
+
+
+```{r}
+extract_abcd_features <- function(dir_path, width, height, is_benign = TRUE) {
+  images_names <- list.files(dir_path)
+  label <- ifelse(is_benign, 0, 1)
+  print(paste("Start processing", length(images_names), "images"))
+  features <- pblapply(images_names, function(imgname) {
+    ## Read image
+    img <- readImage(file.path(dir_path, imgname))
+    print(imgname)
+    ## Resize image
+    img_resized <- resize(img, w = width, h = height)
+    grayimg <- channel(img_resized, "gray")
+    x = grayimg > otsu(grayimg)
+    
+    asym = c(rep(0.0,18))
+    for (i in 1:18)
+    {
+      x1 = rotate(x,i*10)
+      imageshape <- computeFeatures.shape(x1)
+      img1 <- x1[0:width/2,0:height]
+      img2 <- x1[width/2:width,0:height]
+      imgshape1 <- computeFeatures.shape(img1)
+      imgshape2 <- computeFeatures.shape(img2)
+      asym[i] <- abs(imgshape1[1]-imgshape2[1])/imageshape[1]
+    
+    }
+    imageshape <- computeFeatures.shape(x)
+    #split images in two parts
+    a <- min(asym)
+    b <- (imageshape[2]^2) / (4 * pi * imageshape[1])
+    d <- imageshape[3] * 2 
+    lower=c(0, 0, 0) 
+    upper=c(0.1, 0.1, 0.1)
+    kmeans01 <- colordistance::getKMeanColors(file.path(dir_path, imgname), 
+                                              lower = lower, upper = upper, n = 10, 
+                                              plotting = FALSE)
+    kmeansDF <- colordistance::extractClusters(kmeans01)
+    dis<- dist(as.matrix(kmeansDF[,!(names(kmeansDF) %in% c('Pct'))]), method = "euclidean")
+    c <- sum(ifelse(dis[1:10]>0.5,1,0))
+    f <- cbind(a,b,c,d)
+    
+    return (f)
+  })
+  feature_matrix <- do.call(rbind, features)
+  feature_matrix <- as.data.frame(feature_matrix)
+  feature_matrix <- cbind(label = label, feature_matrix)
+  return(feature_matrix)
+}
+```
+
+```{r}
+m <- extract_abcd_features(dir_path = './Skin Cancer Data/542/malignant', width = 100, height = 100,is_benign = FALSE)
+b <- extract_abcd_features(dir_path = './Skin Cancer Data/542/benign', width = 100, height = 100,is_benign = TRUE)
+extracted_features <- rbind(m,b)
+```
+
+
+
+```{r}
+library(caret)
+set.seed(1)
+test_idx <- createDataPartition(y = extracted_features$label, times = 1, p=0.3, list = FALSE)
+train_img <- extracted_features[-test_idx,]
+test_img <- extracted_features[test_idx,]
+```
+
+
+
+
+```{r}
+lm1 = glm(label~., data = train_img, family=binomial)
+x = ifelse(predict(lm1, newdata=test_img, type="response")>0.5,1,0)
+sum(x==test_img$label)*100/90
+summary(lm1)
+
+```
+
+
+
+```{r}
+library("tree")
+library(rpart)
+library(rpart.plot)
+trfit= rpart(label ~ ., data=train_img, control = list(maxdepth = 20))
+trfit
+rpart.plot(trfit)
+
+```
+
+
+
+
+```{r}
+printcp(trfit)
+```
+
+
+```{r}
+tr1 = prune(trfit, cp = 0.036923)
+
+
+```
+
+
+```{r}
+
+res = ifelse(predict(tr1, test_img,
+       type = "vector",
+       )>.5,1,0)
+
+sum(res==test_img$label)/90
+
+```
+
+
+```{r}
+rpart.plot(tr1)
+```
+
+```{r}
+
+```
+
