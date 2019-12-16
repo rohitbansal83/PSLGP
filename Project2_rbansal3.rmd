@@ -1,0 +1,11 @@
+---
+title: "STAT 542 / CS 598: Group Project: Skin Cancer Diagnostics"
+author: "Fall 2019, by Ashwin Amrutphale (ashwina4), Pratik Patwari (patwari3), Rohit Bansal (rbansal3)"
+date: '12/12/2019'
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+The full code (rmd) file is submitted by **Ashwin Amrutphale (ashwina4)**. Please check submission there.
